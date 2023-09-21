@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "id": "autoshutdown",
+  "version": "${version}",
+  "name": "AutoShutdown",
+  "description": "",
+  "authors": [],
+  "contact": {
+    "repo": "https://github.com/Amber/AutoShutdown"
+  },
+  "license": "MIT",
+  "icon": "assets/autoshutdown/icon.png",
+  "environment": "server",
+  "entrypoints": {
+    "main": [
+      "pers.hpcx.autoshutdown.AutoShutdown"
+    ]
+  },
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric": "*",
+    "minecraft": "${minecraft_version}"
+  }
+}
