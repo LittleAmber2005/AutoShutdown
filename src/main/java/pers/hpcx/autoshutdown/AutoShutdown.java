@@ -84,6 +84,7 @@ public class AutoShutdown
         calendar.set(Calendar.MILLISECOND, 0);
         timerReferenceTime = calendar.getTimeInMillis();
         delayerReferenceTime = System.currentTimeMillis();
+        alignTimer();
         updateTime();
     }
     
@@ -125,7 +126,7 @@ public class AutoShutdown
         } else if (deltaTime <= MILLI_SECONDS_PER_SECOND * 10L) {
             if (!tenSecondsNotified) {
                 tenSecondsNotified = true;
-                server.getPlayerManager().broadcast(red("Server will shutdown within 10 seconds, please log out").formatted(BOLD), true);
+                server.getPlayerManager().broadcast(red("Server will shutdown within 10 seconds").formatted(BOLD), true);
             }
         } else if (deltaTime <= MILLI_SECONDS_PER_MINUTE) {
             if (!oneMinuteNotified) {
