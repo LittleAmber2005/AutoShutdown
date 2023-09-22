@@ -7,8 +7,10 @@ import static com.mojang.brigadier.arguments.StringArgumentType.string;
 
 public enum AutoShutdownConfig {
     
-    ENABLE(bool()),
-    TIME(string());
+    ENABLE_TIMER(bool()),
+    ENABLE_DELAYER(bool()),
+    TIMER(string()),
+    DELAYER(string());
     
     private final String key;
     private final ArgumentType<?> type;

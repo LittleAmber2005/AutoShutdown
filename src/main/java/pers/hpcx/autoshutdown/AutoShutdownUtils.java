@@ -2,7 +2,6 @@ package pers.hpcx.autoshutdown;
 
 import net.fabricmc.loader.api.FabricLoader;
 import net.minecraft.server.command.ServerCommandSource;
-import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.text.TextContent;
@@ -24,14 +23,21 @@ public final class AutoShutdownUtils {
     private AutoShutdownUtils() {
     }
     
-    public static String formatTimer(long time) {
+    public static String formatTime(long time) {
         long second = time / 1000L;
         long minute = second / 60L;
         long hour = minute / 60L;
         return (hour % 24L) + ":" + (minute % 60L) + ":" + (second % 60L);
     }
     
-    public static long parseTimer(String time) {
+    public static String formatRelativeTime(long time) {
+        long second = time / 1000L;
+        long minute = second / 60L;
+        long hour = minute / 60L;
+        return (hour % 24L) + "h " + (minute % 60L) + "m " + (second % 60L) + "s";
+    }
+    
+    public static long parseTime(String time) {
         String[] split = null;
         if (time.contains(":")) {
             split = time.split(":");
@@ -67,14 +73,7 @@ public final class AutoShutdownUtils {
         return Text.literal(str).formatted(GRAY);
     }
     
-    public static void send(ServerPlayerEntity player, boolean success, MutableText... texts) {
-        send(player.getCommandSource(), success, texts);
-    }
-    
     public static void send(ServerCommandSource source, boolean success, MutableText... texts) {
-        if (texts.length == 0) {
-            return;
-        }
         MutableText comp = MutableText.of(TextContent.EMPTY);
         for (MutableText text : texts) {
             comp.append(text);
@@ -86,14 +85,14 @@ public final class AutoShutdownUtils {
         }
     }
     
-    public static int storeProperty(ServerPlayerEntity player, String key, String value) {
-        send(player, true, purple(key), green(" set to "), yellow(value));
+    public static int storeProperty(ServerCommandSource source, String key, String value) {
+        send(source, true, purple(key), green(" set to "), yellow(value));
         Properties properties = new Properties();
         
         try (InputStream in = Files.newInputStream(CONFIG_PATH)) {
             properties.load(in);
         } catch (IOException e) {
-            send(player, false, gray("Failed to read config file: "), red(e.getMessage()));
+            send(source, false, gray("Failed to read config file: "), red(e.getMessage()));
             return 0;
         }
         
@@ -102,7 +101,7 @@ public final class AutoShutdownUtils {
         try (OutputStream out = Files.newOutputStream(CONFIG_PATH)) {
             properties.store(out, CONFIG_COMMENTS);
         } catch (IOException e) {
-            send(player, false, gray("Failed to write config file: "), red(e.getMessage()));
+            send(source, false, gray("Failed to write config file: "), red(e.getMessage()));
             return 0;
         }
         
