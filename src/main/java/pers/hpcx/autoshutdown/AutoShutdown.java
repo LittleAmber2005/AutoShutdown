@@ -167,6 +167,9 @@ public class AutoShutdown
         boolean old = enableTimer;
         enableTimer = BoolArgumentType.getBool(context, ENABLE_TIMER.getKey());
         if (old != enableTimer) {
+            if (enableTimer) {
+                alignTimer();
+            }
             updateTime();
         }
         return storeProperty(context.getSource(), ENABLE_TIMER.getKey(), Boolean.toString(enableTimer));
@@ -175,11 +178,11 @@ public class AutoShutdown
     public int setEnableDelayer(CommandContext<ServerCommandSource> context) {
         boolean old = enableDelayer;
         enableDelayer = BoolArgumentType.getBool(context, ENABLE_DELAYER.getKey());
-        if (!old && enableDelayer) {
-            delayer = Math.max(delayer, MILLI_SECONDS_PER_MINUTE);
-            delayerReferenceTime = System.currentTimeMillis();
-        }
         if (old != enableDelayer) {
+            if (enableDelayer) {
+                delayer = Math.max(delayer, MILLI_SECONDS_PER_MINUTE);
+                delayerReferenceTime = System.currentTimeMillis();
+            }
             updateTime();
         }
         if (enableDelayer) {
@@ -193,16 +196,10 @@ public class AutoShutdown
     public int setTimer(CommandContext<ServerCommandSource> context) {
         try {
             timer = parseTime(StringArgumentType.getString(context, TIMER.getKey()));
+            alignTimer();
         } catch (IllegalArgumentException e) {
             send(context.getSource(), false, red(e.getMessage()));
             return 0;
-        }
-        long currentTime = System.currentTimeMillis();
-        while (timerReferenceTime + timer <= currentTime) {
-            timerReferenceTime += MILLI_SECONDS_PER_DAY;
-        }
-        while (timerReferenceTime + timer > currentTime + MILLI_SECONDS_PER_DAY) {
-            timerReferenceTime -= MILLI_SECONDS_PER_DAY;
         }
         updateTime();
         return storeProperty(context.getSource(), TIMER.getKey(), formatTime(timer));
@@ -211,11 +208,11 @@ public class AutoShutdown
     public int setDelayer(CommandContext<ServerCommandSource> context) {
         try {
             delayer = parseTime(StringArgumentType.getString(context, DELAYER.getKey()));
+            delayerReferenceTime = System.currentTimeMillis();
         } catch (IllegalArgumentException e) {
             send(context.getSource(), false, red(e.getMessage()));
             return 0;
         }
-        delayerReferenceTime = System.currentTimeMillis();
         updateTime();
         if (enableDelayer) {
             send(context.getSource(), true, green("Server will shutdown in "), yellow(formatRelativeTime(delayer)));
@@ -223,6 +220,16 @@ public class AutoShutdown
             send(context.getSource(), true, green("Shutdown delayer set to "), yellow(formatRelativeTime(delayer)));
         }
         return 1;
+    }
+    
+    public void alignTimer() {
+        long currentTime = System.currentTimeMillis();
+        while (timerReferenceTime + timer <= currentTime) {
+            timerReferenceTime += MILLI_SECONDS_PER_DAY;
+        }
+        while (timerReferenceTime + timer > currentTime + MILLI_SECONDS_PER_DAY) {
+            timerReferenceTime -= MILLI_SECONDS_PER_DAY;
+        }
     }
     
     public void updateTime() {
