@@ -27,14 +27,14 @@ public final class AutoShutdownUtils {
         long second = time / 1000L;
         long minute = second / 60L;
         long hour = minute / 60L;
-        return (hour % 24L) + ":" + (minute % 60L) + ":" + (second % 60L);
+        return "%02d:%02d:%02d".formatted(hour % 24L, minute % 60L, second % 60L);
     }
     
     public static String formatRelativeTime(long time) {
         long second = time / 1000L;
         long minute = second / 60L;
         long hour = minute / 60L;
-        return (hour % 24L) + "h " + (minute % 60L) + "m " + (second % 60L) + "s";
+        return "%dh %dm %ds".formatted(hour % 24L, minute % 60L, second % 60L);
     }
     
     public static long parseTime(String time) {

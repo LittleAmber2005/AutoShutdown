@@ -13,6 +13,10 @@ import net.minecraft.command.CommandRegistryAccess;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
+import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.sound.SoundCategory;
+import net.minecraft.sound.SoundEvents;
+import net.minecraft.text.Text;
 import org.slf4j.Logger;
 
 import java.io.IOException;
@@ -36,6 +40,7 @@ public class AutoShutdown
     public static final long MILLI_SECONDS_PER_SECOND = 1_000L;
     public static final long MILLI_SECONDS_PER_MINUTE = 60_000L;
     public static final long MILLI_SECONDS_PER_DAY = 86_400_000L;
+    public static final double PITCH_STEP = 1.05946309435929526456;
     
     public boolean enableTimer = false;
     public boolean enableDelayer = false;
@@ -85,7 +90,7 @@ public class AutoShutdown
         timerReferenceTime = calendar.getTimeInMillis();
         delayerReferenceTime = System.currentTimeMillis();
         alignTimer();
-        updateTime();
+        updateShutdownTime();
     }
     
     public void getProperties(Properties properties) {
@@ -121,28 +126,35 @@ public class AutoShutdown
         } else if (deltaTime <= MILLI_SECONDS_PER_SECOND) {
             if (!oneSecondNotified) {
                 oneSecondNotified = true;
-                server.getPlayerManager().broadcast(red("Server will shutdown immediately").formatted(BOLD), true);
+                broadcast(server, red("Server will shutdown immediately").formatted(BOLD), (float) Math.pow(PITCH_STEP, 7));
             }
         } else if (deltaTime <= MILLI_SECONDS_PER_SECOND * 10L) {
             if (!tenSecondsNotified) {
                 tenSecondsNotified = true;
-                server.getPlayerManager().broadcast(red("Server will shutdown within 10 seconds").formatted(BOLD), true);
+                broadcast(server, red("Server will shutdown within 10 seconds").formatted(BOLD), (float) Math.pow(PITCH_STEP, 5));
             }
         } else if (deltaTime <= MILLI_SECONDS_PER_MINUTE) {
             if (!oneMinuteNotified) {
                 oneMinuteNotified = true;
-                server.getPlayerManager().broadcast(red("Server will shutdown within 1 minute"), true);
+                broadcast(server, red("Server will shutdown within 1 minute"), (float) Math.pow(PITCH_STEP, 4));
             }
         } else if (deltaTime <= MILLI_SECONDS_PER_MINUTE * 5L) {
             if (!fiveMinutesNotified) {
                 fiveMinutesNotified = true;
-                server.getPlayerManager().broadcast(yellow("Server will shutdown within 5 minutes"), true);
+                broadcast(server, yellow("Server will shutdown within 5 minutes"), (float) Math.pow(PITCH_STEP, 2));
             }
         } else if (deltaTime <= MILLI_SECONDS_PER_MINUTE * 10L) {
             if (!tenMinutesNotified) {
                 tenMinutesNotified = true;
-                server.getPlayerManager().broadcast(green("Server will shutdown within 10 minutes"), true);
+                broadcast(server, green("Server will shutdown within 10 minutes"), (float) Math.pow(PITCH_STEP, 0));
             }
+        }
+    }
+    
+    public void broadcast(MinecraftServer server, Text message, float pitch) {
+        for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
+            player.sendMessageToClient(message, true);
+            player.playSound(SoundEvents.BLOCK_NOTE_BLOCK_BELL.value(), SoundCategory.PLAYERS, 1.0f, pitch);
         }
     }
     
@@ -151,41 +163,67 @@ public class AutoShutdown
                          CommandManager.RegistrationEnvironment environment) {
         Predicate<ServerCommandSource> isOperator = source -> source.hasPermissionLevel(4) || "Server".equals(source.getName());
         
+        dispatcher.register(literal("sd").then(literal("info").executes(this::info)));
+        
         dispatcher.register(literal("sd").requires(isOperator).then(literal("timer").then(
                 literal("enable").then(argument(ENABLE_TIMER.getKey(), ENABLE_TIMER.getType()).executes(this::setEnableTimer)))));
-        
-        dispatcher.register(literal("sd").requires(isOperator).then(literal("delayer").then(
-                literal("enable").then(argument(ENABLE_DELAYER.getKey(), ENABLE_DELAYER.getType()).executes(this::setEnableDelayer)))));
         
         dispatcher.register(literal("sd").requires(isOperator).then(literal("timer").then(
                 literal("set").then(argument(TIMER.getKey(), TIMER.getType()).executes(this::setTimer)))));
         
         dispatcher.register(literal("sd").requires(isOperator).then(literal("delayer").then(
+                literal("enable").then(argument(ENABLE_DELAYER.getKey(), ENABLE_DELAYER.getType()).executes(this::setEnableDelayer)))));
+        
+        dispatcher.register(literal("sd").requires(isOperator).then(literal("delayer").then(
                 literal("set").then(argument(DELAYER.getKey(), DELAYER.getType()).executes(this::setDelayer)))));
     }
     
-    public int setEnableTimer(CommandContext<ServerCommandSource> context) {
-        boolean old = enableTimer;
-        enableTimer = BoolArgumentType.getBool(context, ENABLE_TIMER.getKey());
-        if (old != enableTimer) {
-            if (enableTimer) {
-                alignTimer();
-            }
-            updateTime();
+    public int info(CommandContext<ServerCommandSource> context) {
+        ServerCommandSource source = context.getSource();
+        if (enableTimer) {
+            send(source, true, green("Shutdown timer set to "), yellow(formatTime(timer)));
+        } else {
+            send(source, true, green("Shutdown timer "), yellow("disabled"));
         }
+        if (enableDelayer) {
+            send(source, true, green("Shutdown delayer set to "), yellow(formatTime(delayer)));
+        } else {
+            send(source, true, green("Shutdown delayer "), yellow("disabled"));
+        }
+        if (enableTimer || enableDelayer) {
+            long deltaTime = shutdownTime - System.currentTimeMillis();
+            send(source, true, green("Server will shutdown in "), yellow(formatRelativeTime(deltaTime)));
+        }
+        return 1;
+    }
+    
+    public int setEnableTimer(CommandContext<ServerCommandSource> context) {
+        enableTimer = BoolArgumentType.getBool(context, ENABLE_TIMER.getKey());
+        alignTimer();
+        updateShutdownTime();
         return storeProperty(context.getSource(), ENABLE_TIMER.getKey(), Boolean.toString(enableTimer));
+    }
+    
+    public int setTimer(CommandContext<ServerCommandSource> context) {
+        try {
+            timer = parseTime(StringArgumentType.getString(context, TIMER.getKey()));
+        } catch (IllegalArgumentException e) {
+            send(context.getSource(), false, red(e.getMessage()));
+            return 0;
+        }
+        alignTimer();
+        updateShutdownTime();
+        return storeProperty(context.getSource(), TIMER.getKey(), formatTime(timer));
     }
     
     public int setEnableDelayer(CommandContext<ServerCommandSource> context) {
         boolean old = enableDelayer;
         enableDelayer = BoolArgumentType.getBool(context, ENABLE_DELAYER.getKey());
-        if (old != enableDelayer) {
-            if (enableDelayer) {
-                delayer = Math.max(delayer, MILLI_SECONDS_PER_MINUTE);
-                delayerReferenceTime = System.currentTimeMillis();
-            }
-            updateTime();
+        if (!old && enableDelayer) {
+            delayerReferenceTime = System.currentTimeMillis();
+            delayer = Math.max(delayer, MILLI_SECONDS_PER_MINUTE);
         }
+        updateShutdownTime();
         if (enableDelayer) {
             send(context.getSource(), true, green("Server will shutdown in "), yellow(formatRelativeTime(delayer)));
         } else {
@@ -194,27 +232,15 @@ public class AutoShutdown
         return 1;
     }
     
-    public int setTimer(CommandContext<ServerCommandSource> context) {
-        try {
-            timer = parseTime(StringArgumentType.getString(context, TIMER.getKey()));
-            alignTimer();
-        } catch (IllegalArgumentException e) {
-            send(context.getSource(), false, red(e.getMessage()));
-            return 0;
-        }
-        updateTime();
-        return storeProperty(context.getSource(), TIMER.getKey(), formatTime(timer));
-    }
-    
     public int setDelayer(CommandContext<ServerCommandSource> context) {
         try {
-            delayer = parseTime(StringArgumentType.getString(context, DELAYER.getKey()));
             delayerReferenceTime = System.currentTimeMillis();
+            delayer = parseTime(StringArgumentType.getString(context, DELAYER.getKey()));
         } catch (IllegalArgumentException e) {
             send(context.getSource(), false, red(e.getMessage()));
             return 0;
         }
-        updateTime();
+        updateShutdownTime();
         if (enableDelayer) {
             send(context.getSource(), true, green("Server will shutdown in "), yellow(formatRelativeTime(delayer)));
         } else {
@@ -233,16 +259,10 @@ public class AutoShutdown
         }
     }
     
-    public void updateTime() {
-        if (enableTimer && enableDelayer) {
-            shutdownTime = Math.min(timerReferenceTime + timer, delayerReferenceTime + delayer);
-        } else if (enableTimer) {
-            shutdownTime = timerReferenceTime + timer;
-        } else if (enableDelayer) {
-            shutdownTime = delayerReferenceTime + delayer;
-        } else {
-            shutdownTime = 0L;
-        }
+    public void updateShutdownTime() {
+        long time0 = enableTimer ? timerReferenceTime + timer : Long.MAX_VALUE;
+        long time1 = enableDelayer ? delayerReferenceTime + delayer : Long.MAX_VALUE;
+        shutdownTime = Math.min(time0, time1);
         oneSecondNotified = false;
         tenSecondsNotified = false;
         oneMinuteNotified = false;
