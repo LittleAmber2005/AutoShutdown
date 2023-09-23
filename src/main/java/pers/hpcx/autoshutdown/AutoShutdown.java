@@ -152,6 +152,7 @@ public class AutoShutdown
     }
     
     public void broadcast(MinecraftServer server, Text message, float pitch) {
+        LOGGER.info(message.getString());
         for (ServerPlayerEntity player : server.getPlayerManager().getPlayerList()) {
             player.sendMessageToClient(message, true);
             player.playSound(SoundEvents.BLOCK_NOTE_BLOCK_BELL.value(), SoundCategory.PLAYERS, 1.0f, pitch);
