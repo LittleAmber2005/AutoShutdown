@@ -192,15 +192,15 @@ public class AutoShutdown implements ModInitializer {
     public final CommandRegistrationCallback commandRegistrationCallback = (dispatcher, registryAccess, environment) -> {
         Predicate<ServerCommandSource> isOperator = source -> source.hasPermissionLevel(4) || "Server".equals(source.getName());
         
-        dispatcher.register(literal("sd").then(literal("info").executes(this::info)));
+        dispatcher.register(literal("shutdown").then(literal("info").executes(this::info)));
         
-        dispatcher.register(literal("sd").requires(isOperator).then(literal("timer").then(literal("enable").then(argument(ENABLE_TIMER.getKey(), ENABLE_TIMER.getType()).executes(this::setEnableTimer)))));
+        dispatcher.register(literal("shutdown").requires(isOperator).then(literal("timer").then(literal("enable").then(argument(ENABLE_TIMER.getKey(), ENABLE_TIMER.getType()).executes(this::setEnableTimer)))));
         
-        dispatcher.register(literal("sd").requires(isOperator).then(literal("timer").then(literal("set").then(argument(TIMER.getKey(), TIMER.getType()).executes(this::setTimer)))));
+        dispatcher.register(literal("shutdown").requires(isOperator).then(literal("timer").then(literal("set").then(argument(TIMER.getKey(), TIMER.getType()).executes(this::setTimer)))));
         
-        dispatcher.register(literal("sd").requires(isOperator).then(literal("delayer").then(literal("enable").then(argument(ENABLE_DELAYER.getKey(), ENABLE_DELAYER.getType()).executes(this::setEnableDelayer)))));
+        dispatcher.register(literal("shutdown").requires(isOperator).then(literal("delayer").then(literal("enable").then(argument(ENABLE_DELAYER.getKey(), ENABLE_DELAYER.getType()).executes(this::setEnableDelayer)))));
         
-        dispatcher.register(literal("sd").requires(isOperator).then(literal("delayer").then(literal("set").then(argument(DELAYER.getKey(), DELAYER.getType()).executes(this::setDelayer)))));
+        dispatcher.register(literal("shutdown").requires(isOperator).then(literal("delayer").then(literal("set").then(argument(DELAYER.getKey(), DELAYER.getType()).executes(this::setDelayer)))));
     };
     
     public int info(CommandContext<ServerCommandSource> context) {
