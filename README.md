@@ -1,6 +1,6 @@
 # AutoShutdown
 
-A mod adding command `/sd` and implementing automatic server shutdown.
+A mod implements automatic server shutdown, adding `/sd`.
 
 Made for servers! Clients don't have to install AutoShutdown to connect to the server.
 

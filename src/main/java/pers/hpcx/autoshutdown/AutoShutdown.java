@@ -1,6 +1,5 @@
 package pers.hpcx.autoshutdown;
 
-import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
@@ -9,9 +8,7 @@ import net.fabricmc.api.ModInitializer;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
-import net.minecraft.command.CommandRegistryAccess;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.command.CommandManager;
 import net.minecraft.server.command.ServerCommandSource;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.sound.SoundCategory;
@@ -33,19 +30,19 @@ import static net.minecraft.util.Formatting.BOLD;
 import static pers.hpcx.autoshutdown.AutoShutdownConfig.*;
 import static pers.hpcx.autoshutdown.AutoShutdownUtils.*;
 
-public class AutoShutdown
-        implements ModInitializer, ServerLifecycleEvents.ServerStarting, ServerTickEvents.EndTick, CommandRegistrationCallback {
+public class AutoShutdown implements ModInitializer {
     
-    private static final Logger LOGGER = LogUtils.getLogger();
     public static final long MILLI_SECONDS_PER_SECOND = 1_000L;
     public static final long MILLI_SECONDS_PER_MINUTE = 60_000L;
     public static final long MILLI_SECONDS_PER_DAY = 86_400_000L;
     public static final double PITCH_STEP = 1.05946309435929526456;
     
-    public boolean enableTimer = false;
-    public boolean enableDelayer = false;
-    public long timer = 0L;
-    public long delayer = 0L;
+    private static final Logger LOGGER = LogUtils.getLogger();
+    
+    public boolean enableTimer;
+    public boolean enableDelayer;
+    public long timer;
+    public long delayer;
     public long shutdownTime;
     public long timerReferenceTime;
     public long delayerReferenceTime;
@@ -57,40 +54,10 @@ public class AutoShutdown
     
     @Override
     public void onInitialize() {
-        ServerLifecycleEvents.SERVER_STARTING.register(this);
-        ServerTickEvents.END_SERVER_TICK.register(this);
-        CommandRegistrationCallback.EVENT.register(this);
-    }
-    
-    @Override
-    public void onServerStarting(MinecraftServer server) {
-        try {
-            if (Files.exists(CONFIG_PATH)) {
-                try (InputStream in = Files.newInputStream(CONFIG_PATH)) {
-                    Properties properties = new Properties();
-                    properties.load(in);
-                    getProperties(properties);
-                }
-            } else {
-                Files.createFile(CONFIG_PATH);
-                try (OutputStream out = Files.newOutputStream(CONFIG_PATH)) {
-                    Properties properties = new Properties();
-                    setProperties(properties);
-                    properties.store(out, CONFIG_COMMENTS);
-                }
-            }
-        } catch (IOException ignored) {
-        }
-        
-        Calendar calendar = Calendar.getInstance();
-        calendar.set(Calendar.HOUR_OF_DAY, 0);
-        calendar.set(Calendar.MINUTE, 0);
-        calendar.set(Calendar.SECOND, 0);
-        calendar.set(Calendar.MILLISECOND, 0);
-        timerReferenceTime = calendar.getTimeInMillis();
-        delayerReferenceTime = System.currentTimeMillis();
-        alignTimer();
-        updateShutdownTime();
+        ServerLifecycleEvents.SERVER_STARTING.register(loadConfig);
+        ServerLifecycleEvents.SERVER_STARTING.register(initShutdownTime);
+        ServerTickEvents.END_SERVER_TICK.register(checkTime);
+        CommandRegistrationCallback.EVENT.register(commandRegistrationCallback);
     }
     
     public void getProperties(Properties properties) {
@@ -115,40 +82,25 @@ public class AutoShutdown
         properties.setProperty(TIMER.getKey(), formatTime(timer));
     }
     
-    @Override
-    public void onEndTick(MinecraftServer server) {
-        if (!enableTimer && !enableDelayer) {
-            return;
+    public void alignTimer() {
+        long currentTime = System.currentTimeMillis();
+        while (timerReferenceTime + timer <= currentTime) {
+            timerReferenceTime += MILLI_SECONDS_PER_DAY;
         }
-        long deltaTime = shutdownTime - System.currentTimeMillis();
-        if (deltaTime <= 0) {
-            server.stop(false);
-        } else if (deltaTime <= MILLI_SECONDS_PER_SECOND) {
-            if (!oneSecondNotified) {
-                oneSecondNotified = true;
-                broadcast(server, red("Server will shutdown immediately").formatted(BOLD), (float) Math.pow(PITCH_STEP, 7));
-            }
-        } else if (deltaTime <= MILLI_SECONDS_PER_SECOND * 10L) {
-            if (!tenSecondsNotified) {
-                tenSecondsNotified = true;
-                broadcast(server, red("Server will shutdown within 10 seconds").formatted(BOLD), (float) Math.pow(PITCH_STEP, 5));
-            }
-        } else if (deltaTime <= MILLI_SECONDS_PER_MINUTE) {
-            if (!oneMinuteNotified) {
-                oneMinuteNotified = true;
-                broadcast(server, red("Server will shutdown within 1 minute"), (float) Math.pow(PITCH_STEP, 4));
-            }
-        } else if (deltaTime <= MILLI_SECONDS_PER_MINUTE * 5L) {
-            if (!fiveMinutesNotified) {
-                fiveMinutesNotified = true;
-                broadcast(server, yellow("Server will shutdown within 5 minutes"), (float) Math.pow(PITCH_STEP, 2));
-            }
-        } else if (deltaTime <= MILLI_SECONDS_PER_MINUTE * 10L) {
-            if (!tenMinutesNotified) {
-                tenMinutesNotified = true;
-                broadcast(server, green("Server will shutdown within 10 minutes"), (float) Math.pow(PITCH_STEP, 0));
-            }
+        while (timerReferenceTime + timer > currentTime + MILLI_SECONDS_PER_DAY) {
+            timerReferenceTime -= MILLI_SECONDS_PER_DAY;
         }
+    }
+    
+    public void updateShutdownTime() {
+        long time0 = enableTimer ? timerReferenceTime + timer : Long.MAX_VALUE;
+        long time1 = enableDelayer ? delayerReferenceTime + delayer : Long.MAX_VALUE;
+        shutdownTime = Math.min(time0, time1);
+        oneSecondNotified = false;
+        tenSecondsNotified = false;
+        oneMinuteNotified = false;
+        fiveMinutesNotified = false;
+        tenMinutesNotified = false;
     }
     
     public void broadcast(MinecraftServer server, Text message, float pitch) {
@@ -159,25 +111,97 @@ public class AutoShutdown
         }
     }
     
-    @Override
-    public void register(CommandDispatcher<ServerCommandSource> dispatcher, CommandRegistryAccess registryAccess,
-                         CommandManager.RegistrationEnvironment environment) {
+    public final ServerLifecycleEvents.ServerStarting loadConfig = server -> {
+        try {
+            if (Files.exists(CONFIG_PATH)) {
+                try (InputStream in = Files.newInputStream(CONFIG_PATH)) {
+                    Properties properties = new Properties();
+                    properties.load(in);
+                    getProperties(properties);
+                }
+            } else {
+                Files.createFile(CONFIG_PATH);
+                try (OutputStream out = Files.newOutputStream(CONFIG_PATH)) {
+                    Properties properties = new Properties();
+                    setProperties(properties);
+                    properties.store(out, CONFIG_COMMENTS);
+                }
+            }
+        } catch (IOException e) {
+            LOGGER.error("failed to load config file", e);
+        }
+    };
+    
+    public final ServerLifecycleEvents.ServerStarting initShutdownTime = server -> {
+        Calendar calendar = Calendar.getInstance();
+        calendar.set(Calendar.HOUR_OF_DAY, 0);
+        calendar.set(Calendar.MINUTE, 0);
+        calendar.set(Calendar.SECOND, 0);
+        calendar.set(Calendar.MILLISECOND, 0);
+        timerReferenceTime = calendar.getTimeInMillis();
+        delayerReferenceTime = System.currentTimeMillis();
+        alignTimer();
+        updateShutdownTime();
+    };
+    
+    public final ServerTickEvents.EndTick checkTime = server -> {
+        if (!enableTimer && !enableDelayer) {
+            return;
+        }
+        long deltaTime = shutdownTime - System.currentTimeMillis();
+        if (deltaTime <= 0) {
+            server.stop(false);
+            return;
+        }
+        if (deltaTime <= MILLI_SECONDS_PER_SECOND) {
+            if (!oneSecondNotified) {
+                oneSecondNotified = true;
+                broadcast(server, red("Server will shutdown immediately").formatted(BOLD), (float) Math.pow(PITCH_STEP, 7));
+            }
+            return;
+        }
+        if (deltaTime <= MILLI_SECONDS_PER_SECOND * 10L) {
+            if (!tenSecondsNotified) {
+                tenSecondsNotified = true;
+                broadcast(server, red("Server will shutdown within 10 seconds").formatted(BOLD), (float) Math.pow(PITCH_STEP, 5));
+            }
+            return;
+        }
+        if (deltaTime <= MILLI_SECONDS_PER_MINUTE) {
+            if (!oneMinuteNotified) {
+                oneMinuteNotified = true;
+                broadcast(server, red("Server will shutdown within 1 minute"), (float) Math.pow(PITCH_STEP, 4));
+            }
+            return;
+        }
+        if (deltaTime <= MILLI_SECONDS_PER_MINUTE * 5L) {
+            if (!fiveMinutesNotified) {
+                fiveMinutesNotified = true;
+                broadcast(server, yellow("Server will shutdown within 5 minutes"), (float) Math.pow(PITCH_STEP, 2));
+            }
+            return;
+        }
+        if (deltaTime <= MILLI_SECONDS_PER_MINUTE * 10L) {
+            if (!tenMinutesNotified) {
+                tenMinutesNotified = true;
+                broadcast(server, green("Server will shutdown within 10 minutes"), (float) Math.pow(PITCH_STEP, 0));
+            }
+        }
+    };
+    
+    public final CommandRegistrationCallback commandRegistrationCallback = (dispatcher, registryAccess, environment) -> {
         Predicate<ServerCommandSource> isOperator = source -> source.hasPermissionLevel(4) || "Server".equals(source.getName());
         
         dispatcher.register(literal("sd").then(literal("info").executes(this::info)));
         
-        dispatcher.register(literal("sd").requires(isOperator).then(literal("timer").then(
-                literal("enable").then(argument(ENABLE_TIMER.getKey(), ENABLE_TIMER.getType()).executes(this::setEnableTimer)))));
+        dispatcher.register(literal("sd").requires(isOperator).then(literal("timer").then(literal("enable").then(argument(ENABLE_TIMER.getKey(), ENABLE_TIMER.getType()).executes(this::setEnableTimer)))));
         
-        dispatcher.register(literal("sd").requires(isOperator).then(literal("timer").then(
-                literal("set").then(argument(TIMER.getKey(), TIMER.getType()).executes(this::setTimer)))));
+        dispatcher.register(literal("sd").requires(isOperator).then(literal("timer").then(literal("set").then(argument(TIMER.getKey(), TIMER.getType()).executes(this::setTimer)))));
         
-        dispatcher.register(literal("sd").requires(isOperator).then(literal("delayer").then(
-                literal("enable").then(argument(ENABLE_DELAYER.getKey(), ENABLE_DELAYER.getType()).executes(this::setEnableDelayer)))));
+        dispatcher.register(literal("sd").requires(isOperator).then(literal("delayer").then(literal("enable").then(argument(ENABLE_DELAYER.getKey(), ENABLE_DELAYER.getType()).executes(this::setEnableDelayer)))));
         
-        dispatcher.register(literal("sd").requires(isOperator).then(literal("delayer").then(
-                literal("set").then(argument(DELAYER.getKey(), DELAYER.getType()).executes(this::setDelayer)))));
-    }
+        dispatcher.register(literal("sd").requires(isOperator).then(literal("delayer").then(literal("set").then(argument(DELAYER.getKey(), DELAYER.getType()).executes(this::setDelayer)))));
+    };
     
     public int info(CommandContext<ServerCommandSource> context) {
         ServerCommandSource source = context.getSource();
@@ -248,26 +272,5 @@ public class AutoShutdown
             send(context.getSource(), true, green("Shutdown delayer set to "), yellow(formatRelativeTime(delayer)));
         }
         return 1;
-    }
-    
-    public void alignTimer() {
-        long currentTime = System.currentTimeMillis();
-        while (timerReferenceTime + timer <= currentTime) {
-            timerReferenceTime += MILLI_SECONDS_PER_DAY;
-        }
-        while (timerReferenceTime + timer > currentTime + MILLI_SECONDS_PER_DAY) {
-            timerReferenceTime -= MILLI_SECONDS_PER_DAY;
-        }
-    }
-    
-    public void updateShutdownTime() {
-        long time0 = enableTimer ? timerReferenceTime + timer : Long.MAX_VALUE;
-        long time1 = enableDelayer ? delayerReferenceTime + delayer : Long.MAX_VALUE;
-        shutdownTime = Math.min(time0, time1);
-        oneSecondNotified = false;
-        tenSecondsNotified = false;
-        oneMinuteNotified = false;
-        fiveMinutesNotified = false;
-        tenMinutesNotified = false;
     }
 }
